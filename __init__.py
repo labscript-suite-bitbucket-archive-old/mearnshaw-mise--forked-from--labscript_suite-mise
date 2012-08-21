@@ -2,7 +2,7 @@ from __future__ import division
 from numbers import Number
 
 class MiseParameter(object):
-    def __init__(self, min, max, mutationsize=None, log=False), initial = None:
+    def __init__(self, min, max, mutationsize=None, log=False, initial = None):
     
         # Check for valid min and max
         if not isinstance(min, Number) or not isinstance(max, Number) or not max > min:
@@ -27,7 +27,6 @@ class MiseParameter(object):
         
         self.min = float(min)
         self.max = float(max)
-        self.mutationsize = abs(float(mutationsize)))
+        self.mutationsize = abs(float(mutationsize))
         self.log = bool(log)
         self.initial = None if initial is None else float(initial)
-        
