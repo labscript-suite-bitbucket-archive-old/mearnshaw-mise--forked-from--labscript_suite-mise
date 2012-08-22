@@ -2,11 +2,14 @@ import os
 import sys
 import socket
 import logging, logging.handlers
+import Queue
 
 import gtk
 
 import excepthook
 from subproc_utils import ZMQServer
+from subproc_utils.gtk_components import OutputBox
+
 from LabConfig import LabConfig, config_prefix
 
 from mise import MiseParameter
@@ -76,9 +79,31 @@ class WebServer(ZMQServer):
             
 class Mise(object):
     def __init__(self):
+    
+        # Make a gtk Builder with the user interface file:
+        builder = gtk.Builder()
+        builder.add_from_file('main.glade')
+        
+        # Get required objects from the builder:
+        outputbox_container = builder.get_object('outputbox_container')
+        self.window = builder.get_object('window')
+        
+        # Connect signals:
+        builder.connect_signals(self)
+        
+        # Show the main window:
+        self.window.show()
+        
+        # Compilations will have their output streams
+        # redirected to the outputbox via a queue:
+        self.to_outputbox = Queue.Queue()
+        
+        # Make an output box for terminal output:
+        outputbox = OutputBox(outputbox_container, self.to_outputbox)
+        
         # Get settings:
         config_path = os.path.join(config_prefix,'%s.ini'%socket.gethostname())
-        required_config_params = {"paths":["experiment_shot_storage"]}
+        required_config_params = {"paths":["experiment_shot_storage"],'ports':['mise']}
         self.config = LabConfig(config_path,required_config_params)
 
         # Start the web server:
@@ -86,7 +111,11 @@ class Mise(object):
         self.server = WebServer(port)
     
         self.mised_params = []
-        
+        logger.info('init done')
+    
+    def destroy(self, widget):
+        print 'destroy!'
+            
     def receive_parameter_space(self, labscript_file, parameter_space):
         """Receive a parameter space dictionary from runmanger"""
         mised_params = []
