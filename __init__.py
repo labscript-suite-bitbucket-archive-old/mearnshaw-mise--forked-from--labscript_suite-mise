@@ -2,19 +2,19 @@ from __future__ import division
 from numbers import Number
 
 class MiseParameter(object):
-    def __init__(self, min, max, mutationsize=None, log=False, initial = None):
+    def __init__(self, min, max, mutation_rate=None, log=False, initial = None):
     
         # Check for valid min and max
         if not isinstance(min, Number) or not isinstance(max, Number) or not max > min:
             raise ValueError('MiseParameter must have unequal numerical min and max values, with min < max.')
          
-        # Set default mutation size if unset:   
-        if mutationsize is None:
-            mutationsize = (max-min)/10
+        # Set default mutation rate if unset:   
+        if mutation_rate is None:
+            mutation_rate = (max-min)/10
             
-        # Check for valid mutation size
-        if not isinstance(mutationsize ,Number):
-            raise ValueError('mutationsize must be a number')
+        # Check for valid mutation rate
+        if not isinstance(mutation_rate ,Number):
+            raise ValueError('mutation_rate must be a number')
             
         # Check for valid initial value:
         if initial is not None:
@@ -27,6 +27,6 @@ class MiseParameter(object):
         
         self.min = float(min)
         self.max = float(max)
-        self.mutationsize = abs(float(mutationsize))
+        self.mutation_rate = abs(float(mutation_rate))
         self.log = bool(log)
         self.initial = None if initial is None else float(initial)

@@ -2,11 +2,26 @@
 <interface>
   <requires lib="gtk+" version="2.24"/>
   <!-- interface-naming-policy project-wide -->
-  <object class="GtkListStore" id="liststore1"/>
+  <object class="GtkListStore" id="liststore_parameters">
+    <columns>
+      <!-- column-name name -->
+      <column type="gchararray"/>
+      <!-- column-name min -->
+      <column type="gchararray"/>
+      <!-- column-name max -->
+      <column type="gchararray"/>
+      <!-- column-name mutation -->
+      <column type="gchararray"/>
+      <!-- column-name logarithmic -->
+      <column type="gboolean"/>
+    </columns>
+  </object>
   <object class="GtkWindow" id="window">
     <property name="can_focus">False</property>
+    <property name="title" translatable="yes">mise</property>
     <property name="default_width">800</property>
     <property name="default_height">600</property>
+    <property name="icon">mise.svg</property>
     <signal name="destroy" handler="destroy" swapped="no"/>
     <child>
       <object class="GtkHPaned" id="hpaned1">
@@ -66,19 +81,80 @@
                         <property name="can_focus">False</property>
                         <property name="left_padding">12</property>
                         <child>
-                          <object class="GtkTreeView" id="treeview1">
+                          <object class="GtkScrolledWindow" id="scrolledwindow1">
                             <property name="visible">True</property>
                             <property name="can_focus">True</property>
-                            <property name="model">liststore1</property>
+                            <property name="hscrollbar_policy">automatic</property>
+                            <property name="vscrollbar_policy">automatic</property>
                             <child>
-                              <object class="GtkTreeViewColumn" id="parameter_name">
-                                <property name="resizable">True</property>
-                                <property name="title" translatable="yes">name</property>
+                              <object class="GtkTreeView" id="treeview1">
+                                <property name="visible">True</property>
+                                <property name="can_focus">True</property>
+                                <property name="model">liststore_parameters</property>
+                                <property name="headers_clickable">False</property>
+                                <property name="search_column">0</property>
                                 <child>
-                                  <object class="GtkCellRendererText" id="cellrenderertext1"/>
-                                  <attributes>
-                                    <attribute name="text">0</attribute>
-                                  </attributes>
+                                  <object class="GtkTreeViewColumn" id="col_parameter_name">
+                                    <property name="resizable">True</property>
+                                    <property name="title" translatable="yes">name</property>
+                                    <child>
+                                      <object class="GtkCellRendererText" id="parameter_name"/>
+                                      <attributes>
+                                        <attribute name="text">0</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkTreeViewColumn" id="col_parameter_min">
+                                    <property name="resizable">True</property>
+                                    <property name="title" translatable="yes">min</property>
+                                    <child>
+                                      <object class="GtkCellRendererText" id="parameter_min">
+                                        <property name="editable">True</property>
+                                      </object>
+                                      <attributes>
+                                        <attribute name="text">1</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkTreeViewColumn" id="col_parameter_max">
+                                    <property name="title" translatable="yes">max</property>
+                                    <child>
+                                      <object class="GtkCellRendererText" id="parameter_max">
+                                        <property name="editable">True</property>
+                                      </object>
+                                      <attributes>
+                                        <attribute name="text">2</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkTreeViewColumn" id="col_parameter_mutation_rate">
+                                    <property name="title" translatable="yes">mutation rate</property>
+                                    <child>
+                                      <object class="GtkCellRendererText" id="paramter_mutationrate">
+                                        <property name="editable">True</property>
+                                      </object>
+                                      <attributes>
+                                        <attribute name="text">3</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkTreeViewColumn" id="col_parameter_logarithmic">
+                                    <property name="title" translatable="yes">logarithmic</property>
+                                    <child>
+                                      <object class="GtkCellRendererToggle" id="cellrenderertoggle1"/>
+                                      <attributes>
+                                        <attribute name="active">4</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
                                 </child>
                               </object>
                             </child>
@@ -111,9 +187,17 @@
                         <property name="can_focus">False</property>
                         <property name="left_padding">12</property>
                         <child>
-                          <object class="GtkTreeView" id="treeview2">
+                          <object class="GtkScrolledWindow" id="scrolledwindow2">
                             <property name="visible">True</property>
                             <property name="can_focus">True</property>
+                            <property name="hscrollbar_policy">automatic</property>
+                            <property name="vscrollbar_policy">automatic</property>
+                            <child>
+                              <object class="GtkTreeView" id="treeview2">
+                                <property name="visible">True</property>
+                                <property name="can_focus">True</property>
+                              </object>
+                            </child>
                           </object>
                         </child>
                       </object>

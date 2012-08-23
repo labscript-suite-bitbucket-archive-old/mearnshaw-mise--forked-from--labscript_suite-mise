@@ -87,6 +87,7 @@ class Mise(object):
         # Get required objects from the builder:
         outputbox_container = builder.get_object('outputbox_container')
         self.window = builder.get_object('window')
+        self.liststore_parameters = builder.get_object('liststore_parameters')
         
         # Connect signals:
         builder.connect_signals(self)
@@ -108,19 +109,23 @@ class Mise(object):
 
         # Start the web server:
         port = self.config.get('ports','mise')
+        logger.info('starting web server on port %s'%port)
         self.server = WebServer(port)
     
         self.mised_params = []
         logger.info('init done')
     
     def destroy(self, widget):
-        print 'destroy!'
+        logger.info('destroy')
+        gtk.main_quit()
             
     def receive_parameter_space(self, labscript_file, parameter_space):
         """Receive a parameter space dictionary from runmanger"""
         mised_params = []
         for key, value in parameter_space.items():
             if isinstance(value, MiseParameter):
+                data = [key, value.min, value.max, value.mutation_rate, value.log]
+                self.liststore_parameters.append(data)
                 mised_params.append(value)
         print mised_params
         return True, 'dummy message\n'
