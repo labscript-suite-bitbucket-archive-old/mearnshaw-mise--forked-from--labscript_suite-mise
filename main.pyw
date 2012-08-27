@@ -3,7 +3,9 @@ import sys
 import socket
 import logging, logging.handlers
 import Queue
+import itertools
 
+import numpy
 import gtk
 
 import excepthook
@@ -76,6 +78,89 @@ class WebServer(ZMQServer):
         success, message = False, 'Request to mise not understood\n'
         return success, message
             
+
+class Individual(object):
+    counter = itertools.count()
+    all_individuals = []
+    
+    def __init__(self, genome):
+        self.genome = genome
+        self.fitness = None
+        self.id = self.counter.next()
+        self.all_individuals.append(self)
+        
+    def __getitem__(self,item):
+        return self.genome[item]
+        
+        
+class Generation(object):
+    counter = itertools.count()
+    def __init__(self, population, parameters, previous_generation=None):
+        self.id = self.counter.next()
+        self.individuals = []
+        if previous_generation is None:
+            # Spawn individuals to create the first generation:
+            for i in range(population):
+                genome = {}
+                for name, param in parameters.items():
+                    if param.initial is None:
+                        # Pick a random starting value within the range: 
+                        value = numpy.random.rand()*(param.max-param.min) + param.min
+                    else:
+                        # Pick a value by applying one generation's worth
+                        # of mutation to the initial value:
+                        value = numpy.random.normal(param.initial, param.mutation_rate)
+                        value = numpy.clip(value, param.min, param.max)
+                    genome[name] = value
+                individual = Individual(genome)
+                self.individuals.append(individual)
+        else:
+            # Create a new generation from the previous one, by 'mating'
+            # pairs of individuals with each other with a probability
+            # based on their fitnesses.  First, we normalize the
+            # fitnesses of previous generation to create a probability
+            # mass function:
+            fitnesses = numpy.array([individual.fitness for individual in previous_generation])
+            fitnesses -= fitnesses.min()
+            if fitnesses.max() != 0:
+                fitnesses /= fitnesses.max()
+            # Add an offset to ensure that the least fit individual
+            # will still have a nonzero probability of reproduction;
+            # approx 1/N times the most fit individual's probability:
+            fitnesses += 1/len(fitnesses)
+            fitnesses /= fitnesses.sum()
+            # Let mating season begin:
+            while len(self.individuals) < population:
+                # Pick parent number #1
+                parent_1_index = numpy.searchsorted(cumsum(fitnesses), numpy.random.rand())
+                # Pick parent number #2, must be different to parent #1:
+                parent_2_index = parent_1_index
+                while parent_2_index == parent_1_index:
+                    parent_2_index = numpy.searchsorted(cumsum(fitnesses), numpy.random.rand())
+                parent_1 = previous_generation[parent_1_index]
+                parent_2 = previous_generation[parent_2_index]
+                # Now we have two parents. Let's mix their genomes:
+                child_genome = {}
+                for name, param in parameters.items():
+                    # Pick a value for this parameter from a uniform
+                    # probability distribution between it's parents'
+                    # values:
+                    lim1, lim2 = parent_1[name], parent_2[name]
+                    child_value = numpy.random.rand()*(lim2-lim1) + lim1
+                    # Apply a Gaussian mutation and clip to keep in limits:
+                    child_value = numpy.random.normal(child_value, param.mutation_rate)
+                    child_value = numpy.clip(child_value, param.min, param.max)
+                    child_genome[name] = child_value
+                # Congratulations, it's a boy!
+                child = Individual(genome)
+                self.individuals.append(child)
+                    
+    def __iter__(self):
+        return iter(self.individuals)
+        
+    def __getitem__(self, index):
+        return self.individuals[index]
+            
             
 class Mise(object):
     def __init__(self):
@@ -88,6 +173,7 @@ class Mise(object):
         outputbox_container = builder.get_object('outputbox_container')
         self.window = builder.get_object('window')
         self.liststore_parameters = builder.get_object('liststore_parameters')
+        self.liststore_individuals = builder.get_object('liststore_individuals')
         
         # Connect signals:
         builder.connect_signals(self)
@@ -112,7 +198,11 @@ class Mise(object):
         logger.info('starting web server on port %s'%port)
         self.server = WebServer(port)
     
-        self.mised_params = []
+        self.params = {}
+        self.labscript_file = None
+        
+        self.population = 10
+        self.current_generation = None
         logger.info('init done')
     
     def destroy(self, widget):
@@ -121,15 +211,18 @@ class Mise(object):
             
     def receive_parameter_space(self, labscript_file, parameter_space):
         """Receive a parameter space dictionary from runmanger"""
-        mised_params = []
-        for key, value in parameter_space.items():
+        self.params = {}
+        self.labscript_file = labscript_file
+        self.liststore_parameters.clear()
+        # Pull out the MiseParameters:
+        for name, value in parameter_space.items():
             if isinstance(value, MiseParameter):
-                data = [key, value.min, value.max, value.mutation_rate, value.log]
+                data = [name, value.min, value.max, value.mutation_rate, value.log]
                 self.liststore_parameters.append(data)
-                mised_params.append(value)
-        print mised_params
-        return True, 'dummy message\n'
-    
+                self.params[name] = value
+        self.current_generation = Generation(self.population, self.params, self.current_generation)
+        return True, 'optimisation request added successfully'
+
     def report_fitness(self, individual, fitness):
         print individual, fitness
         return True, 'dummy message\n'
