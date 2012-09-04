@@ -193,9 +193,68 @@
                             <property name="hscrollbar_policy">automatic</property>
                             <property name="vscrollbar_policy">automatic</property>
                             <child>
-                              <object class="GtkTreeView" id="treeview2">
+                              <object class="GtkTreeView" id="treeview_individuals">
                                 <property name="visible">True</property>
                                 <property name="can_focus">True</property>
+                                <child>
+                                  <object class="GtkTreeViewColumn" id="col_individual_generation">
+                                    <property name="title" translatable="yes">gen</property>
+                                    <child>
+                                      <object class="GtkCellRendererText" id="individual_generation"/>
+                                      <attributes>
+                                        <attribute name="text">0</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkTreeViewColumn" id="col_individual_id">
+                                    <property name="title" translatable="yes">id</property>
+                                    <child>
+                                      <object class="GtkCellRendererText" id="individual_id"/>
+                                      <attributes>
+                                        <attribute name="text">1</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkTreeViewColumn" id="col_individual_fitness">
+                                    <property name="title" translatable="yes">fitness</property>
+                                    <child>
+                                      <object class="GtkCellRendererText" id="individual_fitness"/>
+                                      <attributes>
+                                        <attribute name="visible">2</attribute>
+                                        <attribute name="text">3</attribute>
+                                      </attributes>
+                                    </child>
+                                    <child>
+                                      <object class="GtkCellRendererProgress" id="compile_progress">
+                                        <property name="text">compiling</property>
+                                      </object>
+                                      <attributes>
+                                        <attribute name="visible">4</attribute>
+                                        <attribute name="value">5</attribute>
+                                      </attributes>
+                                    </child>
+                                    <child>
+                                      <object class="GtkCellRendererPixbuf" id="compile_error">
+                                        <property name="stock_id">gtk-dialog-warning</property>
+                                      </object>
+                                      <attributes>
+                                        <attribute name="visible">6</attribute>
+                                      </attributes>
+                                    </child>
+                                    <child>
+                                      <object class="GtkCellRendererPixbuf" id="waiting">
+                                        <property name="stock_id">gtk-execute</property>
+                                      </object>
+                                      <attributes>
+                                        <attribute name="visible">7</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
+                                </child>
                               </object>
                             </child>
                           </object>

@@ -4,16 +4,17 @@ import socket
 import logging, logging.handlers
 import Queue
 import itertools
-
+import subprocess
 import numpy
 import gtk
 
 import excepthook
-from subproc_utils import ZMQServer
+from subproc_utils import ZMQServer, subprocess_with_queues
 from subproc_utils.gtk_components import OutputBox
 
 from LabConfig import LabConfig, config_prefix
 
+import runmanager
 from mise import MiseParameter
 
 # This provides debug info without having to run from a terminal, and
@@ -68,12 +69,14 @@ class WebServer(ZMQServer):
             if request_data[0] == 'from runmanager':
                 # A parameter space from runmanager:
                 labscript_file, parameter_space = request_data[1:]
-                success, message = app.receive_parameter_space(labscript_file, parameter_space)
+                with gtk.gdk.lock:
+                    success, message = app.receive_parameter_space(labscript_file, parameter_space)
                 return success, message
             elif request_data[0] == 'from lyse':
                 # A fitness reported from lyse:
                 individual, fitness = request_data
-                success, message = app.report_fitness(individual, fitness)
+                with gtk.gdk.lock:
+                    success, message = app.report_fitness(individual, fitness)
                 return success, message
         success, message = False, 'Request to mise not understood\n'
         return success, message
@@ -85,14 +88,19 @@ class Individual(object):
     
     def __init__(self, genome):
         self.genome = genome
-        self.fitness = None
         self.id = self.counter.next()
+        self.fitness_visible = False
+        self.fitness = None
+        self.compile_progress_visible = True
+        self.compile_progress = 0
+        self.error_visible = None
+        self.waiting_visible = False
         self.all_individuals.append(self)
         
     def __getitem__(self,item):
         return self.genome[item]
         
-        
+    
 class Generation(object):
     counter = itertools.count()
     def __init__(self, population, parameters, previous_generation=None):
@@ -142,15 +150,29 @@ class Generation(object):
                 # Now we have two parents. Let's mix their genomes:
                 child_genome = {}
                 for name, param in parameters.items():
-                    # Pick a value for this parameter from a uniform
-                    # probability distribution between it's parents'
-                    # values:
-                    lim1, lim2 = parent_1[name], parent_2[name]
-                    child_value = numpy.random.rand()*(lim2-lim1) + lim1
-                    # Apply a Gaussian mutation and clip to keep in limits:
-                    child_value = numpy.random.normal(child_value, param.mutation_rate)
-                    child_value = numpy.clip(child_value, param.min, param.max)
+                    if 'name' in parent_1 and 'name' in parent_2:
+                        # Pick a value for this parameter from a uniform
+                        # probability distribution between it's parents'
+                        # values:
+                        lim1, lim2 = parent_1[name], parent_2[name]
+                        child_value = numpy.random.rand()*(lim2-lim1) + lim1
+                        # Apply a Gaussian mutation and clip to keep in limits:
+                        child_value = numpy.random.normal(child_value, param.mutation_rate)
+                        child_value = numpy.clip(child_value, param.min, param.max)
+                    else:
+                        # The parents don't have this
+                        # parameter. Parameters must have changed,
+                        # we need an initial value for this parameter:
+                        if param.initial is None:
+                            # Pick a random starting value within the range: 
+                            child_value = numpy.random.rand()*(param.max-param.min) + param.min
+                        else:
+                            # Pick a value by applying one generation's worth
+                            # of mutation to the initial value:
+                            child_value = numpy.random.normal(param.initial, param.mutation_rate)
+                            child_value = numpy.clip(value, param.min, param.max)
                     child_genome[name] = child_value
+                    
                 # Congratulations, it's a boy!
                 child = Individual(genome)
                 self.individuals.append(child)
@@ -161,8 +183,27 @@ class Generation(object):
     def __getitem__(self, index):
         return self.individuals[index]
             
-            
+
 class Mise(object):
+
+    base_liststore_cols = ['generation', 
+                           'id',
+                           'fitness_visible',
+                           'fitness',
+                           'compile_progress_visible',
+                           'compile_progress',
+                           'error_visible',
+                           'waiting_visible']
+    
+    base_liststore_types = {'generation': str, 
+                            'id': str,
+                            'fitness_visible': bool,
+                            'fitness': str,
+                            'compile_progress_visible': bool,
+                            'compile_progress': int,
+                            'error_visible': bool,
+                            'waiting_visible': bool}
+                            
     def __init__(self):
     
         # Make a gtk Builder with the user interface file:
@@ -173,7 +214,7 @@ class Mise(object):
         outputbox_container = builder.get_object('outputbox_container')
         self.window = builder.get_object('window')
         self.liststore_parameters = builder.get_object('liststore_parameters')
-        self.liststore_individuals = builder.get_object('liststore_individuals')
+        self.treeview_individuals = builder.get_object('treeview_individuals')
         
         # Connect signals:
         builder.connect_signals(self)
@@ -203,6 +244,15 @@ class Mise(object):
         
         self.population = 10
         self.current_generation = None
+        self.generations = []
+        
+        self.new_individual_liststore()
+        
+        # Start the compiler subprocess:
+        runmanager_dir=os.path.dirname(runmanager.__file__)
+        batch_compiler = os.path.join(runmanager_dir, 'batch_compiler.py')
+        self.to_child, self.from_child, child = subprocess_with_queues(batch_compiler)
+
         logger.info('init done')
     
     def destroy(self, widget):
@@ -220,12 +270,37 @@ class Mise(object):
                 data = [name, value.min, value.max, value.mutation_rate, value.log]
                 self.liststore_parameters.append(data)
                 self.params[name] = value
-        self.current_generation = Generation(self.population, self.params, self.current_generation)
-        return True, 'optimisation request added successfully'
+        if self.current_generation is None:
+            self.current_generation = Generation(self.population, self.params)
+            self.generations.append(self.current_generation)
+        self.new_individual_liststore()
+        self.parameter_space = parameter_space
+        return True, 'optimisation request added successfully\n'
 
     def report_fitness(self, individual, fitness):
         print individual, fitness
         return True, 'dummy message\n'
+        
+    def new_individual_liststore(self):
+        column_names = self.base_liststore_cols + self.params.keys()
+        column_types = [self.base_liststore_types[name] for name in self.base_liststore_cols]  + [str for name in self.params]
+        self.liststore_individuals = gtk.ListStore(*column_types)
+        self.treeview_individuals.set_model(self.liststore_individuals)
+        for generation in self.generations:
+            for individual in generation:
+                row = [generation.id, 
+                       individual.id, 
+                       individual.fitness_visible, 
+                       individual.fitness,
+                       individual.compile_progress_visible,
+                       individual.compile_progress,
+                       individual.error_visible,
+                       individual.waiting_visible]
+                row += [individual[name] for name in self.params]
+                self.liststore_individuals.append(row)
+                
+    def mainloop(self):
+        pass
         
 if __name__ == '__main__':
     gtk.threads_init()
