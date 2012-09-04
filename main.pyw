@@ -5,6 +5,7 @@ import logging, logging.handlers
 import Queue
 import itertools
 import subprocess
+import threading
 import numpy
 import gtk
 
@@ -182,8 +183,17 @@ class Generation(object):
         
     def __getitem__(self, index):
         return self.individuals[index]
-            
 
+# Some convenient constants for accessing liststore columns:            
+GENERATION = 0
+ID = 1
+FITNESS_VISIBLE = 2
+FITNESS = 3
+COMPILE_PROGRESS_VISIBLE = 4
+COMPILE_PROGRESS = 5
+ERROR_VISIBLE = 6
+WAITING_VISIBLE = 7
+    
 class Mise(object):
 
     base_liststore_cols = ['generation', 
@@ -215,6 +225,8 @@ class Mise(object):
         self.window = builder.get_object('window')
         self.liststore_parameters = builder.get_object('liststore_parameters')
         self.treeview_individuals = builder.get_object('treeview_individuals')
+        self.box_paused = builder.get_object('paused')
+        self.box_not_paused = builder.get_object('not_paused')
         
         # Connect signals:
         builder.connect_signals(self)
@@ -239,6 +251,10 @@ class Mise(object):
         logger.info('starting web server on port %s'%port)
         self.server = WebServer(port)
     
+        # A condition to let the looping threads know when to recheck conditions
+        # they're waiting on (instead of having them do time.sleep)
+        self.timing_condition = threading.Condition()
+        
         self.params = {}
         self.labscript_file = None
         
@@ -253,12 +269,38 @@ class Mise(object):
         batch_compiler = os.path.join(runmanager_dir, 'batch_compiler.py')
         self.to_child, self.from_child, child = subprocess_with_queues(batch_compiler)
 
+        self.paused = False
+        
+        # A thread which looks for un-compiled individuals and compiles
+        # them, submitting them to BLACS:
+        self.compile_thread = threading.Thread(target=self.compile_loop)
+        self.compile_thread.daemon = True
+        self.compile_thread.start()
+        
+        # A thread which looks for when all fitnesses have come back,
+        # and spawns a new generation when they have:
+        self.reproduction_thread = threading.Thread(target=self.reproduction_loop)
+        self.reproduction_thread.daemon = True
+        self.reproduction_thread.start()
+        
         logger.info('init done')
     
     def destroy(self, widget):
         logger.info('destroy')
         gtk.main_quit()
-            
+           
+    def on_pause_button_toggled(self,button):
+        if button.get_active():
+            self.paused = True
+            self.box_paused.show()
+            self.box_not_paused.hide()
+        else:
+            self.paused = False
+            self.box_paused.hide()
+            self.box_not_paused.show()
+            with self.timing_condition:
+                self.timing_condition.notify_all()
+        
     def receive_parameter_space(self, labscript_file, parameter_space):
         """Receive a parameter space dictionary from runmanger"""
         self.params = {}
@@ -275,6 +317,9 @@ class Mise(object):
             self.generations.append(self.current_generation)
         self.new_individual_liststore()
         self.parameter_space = parameter_space
+        # Let waiting threads know that there might be new state for them to check:
+        with self.timing_condition:
+            self.timing_condition.notify_all()
         return True, 'optimisation request added successfully\n'
 
     def report_fitness(self, individual, fitness):
@@ -298,10 +343,56 @@ class Mise(object):
                        individual.waiting_visible]
                 row += [individual[name] for name in self.params]
                 self.liststore_individuals.append(row)
-                
-    def mainloop(self):
-        pass
-        
+    
+    def compile_one_individual(self,individual):
+        import time
+        done = False
+        while not done:
+            time.sleep(0.01)
+            with gtk.gdk.lock:
+                for row in self.liststore_individuals:
+                    if int(row[ID]) == individual.id:
+                        individual.compile_progress += 1
+                        row[COMPILE_PROGRESS] = individual.compile_progress
+                        if individual.compile_progress == 100:
+                            individual.compile_visible = False
+                            row[COMPILE_PROGRESS_VISIBLE] = individual.compile_visible
+                            done = True
+                        break
+                        
+    def compile_loop(self):
+        while True:
+            while self.paused:
+                with self.timing_condition:
+                    self.timing_condition.wait()
+            logger.info('compile loop iteration')
+            # Get the next individual requiring compilation:
+            individual = None
+            with gtk.gdk.lock:
+                for row in self.liststore_individuals:
+                    if row[COMPILE_PROGRESS_VISIBLE]:
+                        individual_id = int(row[ID])
+                        individual = Individual.all_individuals[individual_id]
+                        logger.info('individual %d needs compiling'%individual_id)
+                        break
+            # If we didn't find any individuals requiring compilation,
+            # wait until a timing_condition notification before checking
+            # again:
+            if individual is None:
+                logger.info('no individuals requiring compilation')
+                with self.timing_condition:
+                    self.timing_condition.wait()
+                    continue
+            # OK, we have an individual which requires compilation.
+            self.compile_one_individual(individual)
+                    
+    def reproduction_loop(self):
+        while True:
+            while self.paused:
+                with self.timing_condition:
+                    self.timing_condition.wait()
+            logger.info('reproduction loop iteration')
+            
 if __name__ == '__main__':
     gtk.threads_init()
     app = Mise()
