@@ -8,6 +8,7 @@ import subprocess
 import threading
 import numpy
 import gtk
+import urllib, urllib2
 
 import excepthook
 from subproc_utils import ZMQServer, subprocess_with_queues
@@ -69,9 +70,10 @@ class WebServer(ZMQServer):
         elif isinstance(request_data,tuple) and len(request_data) > 1:
             if request_data[0] == 'from runmanager':
                 # A parameter space from runmanager:
-                labscript_file, parameter_space = request_data[1:]
+                runmanager_data = request_data[1:]
+                print len(runmanager_data),'************'
                 with gtk.gdk.lock:
-                    success, message = app.receive_parameter_space(labscript_file, parameter_space)
+                    success, message = app.receive_parameter_space(runmanager_data)
                 return success, message
             elif request_data[0] == 'from lyse':
                 # A fitness reported from lyse:
@@ -225,6 +227,7 @@ class Mise(object):
         self.window = builder.get_object('window')
         self.liststore_parameters = builder.get_object('liststore_parameters')
         self.treeview_individuals = builder.get_object('treeview_individuals')
+        self.pause_button = builder.get_object('pause_button')
         self.box_paused = builder.get_object('paused')
         self.box_not_paused = builder.get_object('not_paused')
         
@@ -301,13 +304,15 @@ class Mise(object):
             with self.timing_condition:
                 self.timing_condition.notify_all()
         
-    def receive_parameter_space(self, labscript_file, parameter_space):
+    def receive_parameter_space(self, runmanager_data):
         """Receive a parameter space dictionary from runmanger"""
+        (labscript_file, sequenceglobals, shots, 
+             output_folder, shuffle, BLACS_server, BLACS_port, shared_drive_prefix) = runmanager_data
         self.params = {}
-        self.labscript_file = labscript_file
         self.liststore_parameters.clear()
         # Pull out the MiseParameters:
-        for name, value in parameter_space.items():
+        first_shot = shots[0]
+        for name, value in first_shot.items():
             if isinstance(value, MiseParameter):
                 data = [name, value.min, value.max, value.mutation_rate, value.log]
                 self.liststore_parameters.append(data)
@@ -316,7 +321,15 @@ class Mise(object):
             self.current_generation = Generation(self.population, self.params)
             self.generations.append(self.current_generation)
         self.new_individual_liststore()
-        self.parameter_space = parameter_space
+        self.labscript_file = labscript_file
+        self.sequenceglobals = sequenceglobals
+        self.shots = shots
+        self.output_folder = output_folder
+        self.shuffle = shuffle
+        self.BLACS_server = BLACS_server
+        self.BLACS_port = BLACS_port
+        self.shared_drive_prefix = shared_drive_prefix
+        
         # Let waiting threads know that there might be new state for them to check:
         with self.timing_condition:
             self.timing_condition.notify_all()
@@ -345,21 +358,80 @@ class Mise(object):
                 self.liststore_individuals.append(row)
     
     def compile_one_individual(self,individual):
-        import time
-        done = False
-        while not done:
-            time.sleep(0.01)
-            with gtk.gdk.lock:
-                for row in self.liststore_individuals:
-                    if int(row[ID]) == individual.id:
-                        individual.compile_progress += 1
-                        row[COMPILE_PROGRESS] = individual.compile_progress
-                        if individual.compile_progress == 100:
-                            individual.compile_visible = False
-                            row[COMPILE_PROGRESS_VISIBLE] = individual.compile_visible
-                            done = True
+        # Create a list of shot globals for this individual, by copying
+        # self.shots and replacing MiseParameters with their values for
+        # this individual:
+        shots = []
+        for shot in self.shots:
+            this_shot = shot.copy()
+            for param_name in individual.genome:
+                this_shot[param_name] = individual[param_name]
+            shots.append(this_shot)
+        # Create run files:
+        sequence_id = runmanager.generate_sequence_id(self.labscript_file)
+        n_run_files = len(shots)
+        try:
+            run_files = runmanager.make_run_files(self.output_folder, self.sequenceglobals, shots, sequence_id, self.shuffle)
+            for i, run_file in enumerate(run_files):
+                self.to_child.put(['compile',[self.labscript_file,run_file]])
+                while True:
+                    signal,data = self.from_child.get()
+                    if signal in ['stdout','stderr']:
+                        self.to_outputbox.put([signal,data])
+                    elif signal == 'done':
+                        success = data
                         break
-                        
+                if not success:
+                    break
+                else:
+                    with gtk.gdk.lock:
+                        for row in self.liststore_individuals:
+                            if int(row[ID]) == individual.id:
+                                individual.compile_progress = 100*float(i+1)/n_run_files
+                                row[COMPILE_PROGRESS] = individual.compile_progress
+                                if individual.compile_progress == 100:
+                                    individual.compile_progress_visible = False
+                                    row[COMPILE_PROGRESS_VISIBLE] = False
+                    self.submit_job(run_file)
+                
+        except Exception as e :
+            # Couldn't make or run files, couldn't compile, or couldn't submit. Print the error, pause mise:
+            self.to_outputbox.put(['stderr', str(e)])
+            with gtk.gdk.lock:
+                self.pause_button.set_active(True)
+            
+#        for run_file in run_files:
+#        import time
+#        done = False
+#        while not done:
+#            time.sleep(0.01)
+#            with gtk.gdk.lock:
+#                for row in self.liststore_individuals:
+#                    if int(row[ID]) == individual.id:
+#                        individual.compile_progress += 1
+#                        row[COMPILE_PROGRESS] = individual.compile_progress
+#                        if individual.compile_progress == 100:
+#                            individual.compile_visible = False
+#                            row[COMPILE_PROGRESS_VISIBLE] = individual.compile_visible
+#                            done = True
+#                        break
+    
+    def submit_job(self, run_file):
+        # Workaround to force python not to use IPv6 for the request:
+        address  = socket.gethostbyname(self.BLACS_server)
+        run_file = run_file.replace(self.shared_drive_prefix,'Z:/').replace('/','\\')
+        self.to_outputbox.put(['stdout','Submitting run file %s.\n'%os.path.basename(run_file)])
+        params = urllib.urlencode({'filepath': run_file})
+        try:
+            response = urllib2.urlopen('http://%s:%d'%(address,self.BLACS_port), params, 2).read()
+            if 'added successfully' in response:
+                self.to_outputbox.put(['stdout',response])
+            else:
+                raise Exception(response)
+        except Exception:
+            self.to_outputbox.put(['stderr', 'Couldn\'t submit job to control server:\n'])
+            raise         
+            
     def compile_loop(self):
         while True:
             while self.paused:
@@ -388,11 +460,15 @@ class Mise(object):
                     
     def reproduction_loop(self):
         while True:
-            while self.paused:
+            while self.paused or self.current_generation is None:
                 with self.timing_condition:
                     self.timing_condition.wait()
             logger.info('reproduction loop iteration')
-            
+            if not all([individual.fitness is not None for individual in self.current_generation]):
+                # Still waiting on at least one individual, do not spawn a new generation yet
+                with self.timing_condition:
+                    self.timing_condition.wait()
+                
 if __name__ == '__main__':
     gtk.threads_init()
     app = Mise()
