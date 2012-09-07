@@ -84,7 +84,11 @@ class WebServer(ZMQServer):
         success, message = False, 'Request to mise not understood\n'
         return success, message
             
-
+class IndividualNotFound(Exception):
+    """An exception class for when an operation on an individual fails
+    because the individual has been deleted in the meantime."""
+    pass
+    
 class Individual(object):
     counter = itertools.count()
     all_individuals = []
@@ -357,6 +361,17 @@ class Mise(object):
                 row += [individual[name] for name in self.params]
                 self.liststore_individuals.append(row)
     
+    def set_value(self, individual, column, value):
+        """Searches the liststore for the individual, setting the
+        value of a particular column in the individual's row. Raises
+        IndividualNotFound if the row is not found. You must acquire
+        the gtk lock before calling this method."""
+        for row in self.liststore_individuals:
+            if int(row[ID]) == individual.id:
+                row[column] = value
+                return
+        raise IndividualNotFound
+                        
     def compile_one_individual(self,individual):
         # Create a list of shot globals for this individual, by copying
         # self.shots and replacing MiseParameters with their values for
@@ -368,10 +383,13 @@ class Mise(object):
                 this_shot[param_name] = individual[param_name]
             shots.append(this_shot)
         # Create run files:
-        sequence_id = runmanager.generate_sequence_id(self.labscript_file)
+        sequence_id = runmanager.generate_sequence_id(self.labscript_file) + '_g%di%d'%(self.current_generation.id, individual.id)
         n_run_files = len(shots)
         try:
             run_files = runmanager.make_run_files(self.output_folder, self.sequenceglobals, shots, sequence_id, self.shuffle)
+            with gtk.gdk.lock:
+                individual.error_visible = False
+                self.set_value(individual, ERROR_VISIBLE, individual.error_visible)
             for i, run_file in enumerate(run_files):
                 self.to_child.put(['compile',[self.labscript_file,run_file]])
                 while True:
@@ -385,37 +403,37 @@ class Mise(object):
                     break
                 else:
                     with gtk.gdk.lock:
-                        for row in self.liststore_individuals:
-                            if int(row[ID]) == individual.id:
-                                individual.compile_progress = 100*float(i+1)/n_run_files
-                                row[COMPILE_PROGRESS] = individual.compile_progress
-                                if individual.compile_progress == 100:
-                                    individual.compile_progress_visible = False
-                                    row[COMPILE_PROGRESS_VISIBLE] = False
+                        individual.compile_progress = 100*float(i+1)/n_run_files
+                        self.set_value(individual, COMPILE_PROGRESS, individual.compile_progress)
+                        if individual.compile_progress == 100:
+                            individual.compile_progress_visible = False
+                            self.set_value(individual, COMPILE_PROGRESS_VISIBLE, individual.compile_progress_visible)
+                            individual.waiting_visible = True
+                            self.set_value(individual, WAITING_VISIBLE, individual.waiting_visible)
                     self.submit_job(run_file)
-                
+                    
+        except IndividualNotFound:
+            # The individial has been deleted at some point. It's gone,
+            # so we don't have to worry about where we were up to with
+            # anything. It will be garbage collected....now:
+            return
+            
         except Exception as e :
-            # Couldn't make or run files, couldn't compile, or couldn't submit. Print the error, pause mise:
+            # Couldn't make or run files, couldn't compile, or couldn't
+            # submit. Print the error, pause mise, and display error icon:
             self.to_outputbox.put(['stderr', str(e)])
             with gtk.gdk.lock:
                 self.pause_button.set_active(True)
+                individual.compile_progress = 0
+                self.set_value(individual, COMPILE_PROGRESS, individual.compile_progress)
+                individual.compile_progress_visible = False
+                self.set_value(individual, COMPILE_PROGRESS_VISIBLE, individual.compile_progress_visible)
+                individual.error_visible = True
+                self.set_value(individual, ERROR_VISIBLE, individual.error_visible)
+                individual.waiting_visible = False
+                self.set_value(individual, WAITING_VISIBLE, individual.waiting_visible)
             
-#        for run_file in run_files:
-#        import time
-#        done = False
-#        while not done:
-#            time.sleep(0.01)
-#            with gtk.gdk.lock:
-#                for row in self.liststore_individuals:
-#                    if int(row[ID]) == individual.id:
-#                        individual.compile_progress += 1
-#                        row[COMPILE_PROGRESS] = individual.compile_progress
-#                        if individual.compile_progress == 100:
-#                            individual.compile_visible = False
-#                            row[COMPILE_PROGRESS_VISIBLE] = individual.compile_visible
-#                            done = True
-#                        break
-    
+   
     def submit_job(self, run_file):
         # Workaround to force python not to use IPv6 for the request:
         address  = socket.gethostbyname(self.BLACS_server)
@@ -442,7 +460,7 @@ class Mise(object):
             individual = None
             with gtk.gdk.lock:
                 for row in self.liststore_individuals:
-                    if row[COMPILE_PROGRESS_VISIBLE]:
+                    if row[COMPILE_PROGRESS] == 0:
                         individual_id = int(row[ID])
                         individual = Individual.all_individuals[individual_id]
                         logger.info('individual %d needs compiling'%individual_id)
