@@ -269,6 +269,7 @@ class Mise(object):
         self.current_generation = None
         self.generations = []
         
+        self.treeview_parameter_columns = []
         self.new_individual_liststore()
         
         # Start the compiler subprocess:
@@ -360,7 +361,23 @@ class Mise(object):
                        individual.waiting_visible]
                 row += [individual[name] for name in self.params]
                 self.liststore_individuals.append(row)
-    
+        # Make sure the Treeview has columns for the current parameters:
+        for param_name in self.params:
+            if not param_name in self.treeview_parameter_columns:
+                self.treeview_parameter_columns.append(param_name)
+                model_column_index = column_names.index(param_name)
+                renderer = gtk.CellRendererText()
+                widget = gtk.HBox()
+                heading = gtk.Label(param_name)
+                heading.show()
+                column = gtk.TreeViewColumn()
+                column.pack_start(renderer)
+                column.set_widget(heading)
+                column.add_attribute(renderer, 'text', model_column_index)
+                column.set_resizable(True)
+                column.set_reorderable(True)
+                self.treeview_individuals.append_column(column)
+                
     def set_value(self, individual, column, value):
         """Searches the liststore for the individual, setting the
         value of a particular column in the individual's row. Raises
@@ -413,7 +430,7 @@ class Mise(object):
                     self.submit_job(run_file)
                     
         except IndividualNotFound:
-            # The individial has been deleted at some point. It's gone,
+            # The Individial has been deleted at some point. It's gone,
             # so we don't have to worry about where we were up to with
             # anything. It will be garbage collected....now:
             return
@@ -421,7 +438,7 @@ class Mise(object):
         except Exception as e :
             # Couldn't make or run files, couldn't compile, or couldn't
             # submit. Print the error, pause mise, and display error icon:
-            self.to_outputbox.put(['stderr', str(e)])
+            self.to_outputbox.put(['stderr', str(e) + '\n'])
             with gtk.gdk.lock:
                 self.pause_button.set_active(True)
                 individual.compile_progress = 0
