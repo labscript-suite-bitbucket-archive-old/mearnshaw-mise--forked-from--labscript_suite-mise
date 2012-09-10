@@ -190,7 +190,9 @@ class Generation(object):
     def __getitem__(self, index):
         return self.individuals[index]
 
-# Some convenient constants for accessing liststore columns:            
+# Some convenient constants for accessing liststore columns:   
+
+# Individual list store:       
 GENERATION = 0
 ID = 1
 FITNESS_VISIBLE = 2
@@ -200,6 +202,13 @@ COMPILE_PROGRESS = 5
 ERROR_VISIBLE = 6
 WAITING_VISIBLE = 7
     
+# Parameter liststore:
+NAME = 0
+MIN = 1
+MAX = 2
+MUTATION_RATE = 3
+LOG = 4
+ 
 class Mise(object):
 
     base_liststore_cols = ['generation', 
@@ -234,6 +243,8 @@ class Mise(object):
         self.pause_button = builder.get_object('pause_button')
         self.box_paused = builder.get_object('paused')
         self.box_not_paused = builder.get_object('not_paused')
+        self.label_labscript_file = builder.get_object('label_labscript_file')
+        self.label_output_directory = builder.get_object('label_output_directory')
         
         # Connect signals:
         builder.connect_signals(self)
@@ -296,6 +307,12 @@ class Mise(object):
     def destroy(self, widget):
         logger.info('destroy')
         gtk.main_quit()
+    
+    def error_dialog(self, message):
+        dialog =  gtk.MessageDialog(self.window, gtk.DIALOG_DESTROY_WITH_PARENT, gtk.MESSAGE_WARNING, 
+                                    buttons=(gtk.BUTTONS_OK), message_format = message)
+        result = dialog.run()
+        dialog.destroy()
            
     def on_pause_button_toggled(self,button):
         if button.get_active():
@@ -308,7 +325,56 @@ class Mise(object):
             self.box_not_paused.show()
             with self.timing_condition:
                 self.timing_condition.notify_all()
+    
+    def on_parameter_min_edited(self, renderer, rowindex, value):
+        row = self.liststore_parameters[int(rowindex)]
+        name = row[NAME]
+        param = self.params[name]
+        try:
+            value = float(eval(value))
+        except Exception as e:
+            self.error_dialog(str(e))
+            return
+        if value >= param.max:
+            self.error_dialog('Must have min < max.')
+            return
+        param.min = value
+        row[MIN] = value
+    
+    def on_parameter_max_edited(self, renderer, rowindex, value):
+        row = self.liststore_parameters[int(rowindex)]
+        name = row[NAME]
+        param = self.params[name]
+        try:
+            value = float(eval(value))
+        except Exception as e:
+            self.error_dialog(str(e))
+            return
+        if value <= param.min:
+            self.error_dialog('Must have max > min.')
+            return
+        param.max = value
+        row[MAX] = value
         
+    def on_parameter_mutationrate_edited(self, renderer, rowindex, value):
+        row = self.liststore_parameters[int(rowindex)]
+        name = row[NAME]
+        param = self.params[name]
+        try:
+            value = float(eval(value))
+        except Exception as e:
+            self.error_dialog(str(e))
+            return
+        param.mutation_rate = value
+        row[MUTATION_RATE] = value
+    
+    def on_parameter_logarithmic_toggled(self, renderer, rowindex):
+        row = self.liststore_parameters[int(rowindex)]
+        name = row[NAME]
+        param = self.params[name]
+        param.log = not param.log
+        row[LOG] = param.log
+                   
     def receive_parameter_space(self, runmanager_data):
         """Receive a parameter space dictionary from runmanger"""
         (labscript_file, sequenceglobals, shots, 
@@ -334,7 +400,9 @@ class Mise(object):
         self.BLACS_server = BLACS_server
         self.BLACS_port = BLACS_port
         self.shared_drive_prefix = shared_drive_prefix
-        
+            
+        self.label_labscript_file.set_text(self.labscript_file)
+        self.label_output_directory.set_text(self.output_folder)
         # Let waiting threads know that there might be new state for them to check:
         with self.timing_condition:
             self.timing_condition.notify_all()
