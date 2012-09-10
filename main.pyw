@@ -7,7 +7,7 @@ import itertools
 import subprocess
 import threading
 import numpy
-import gtk
+import gtk, gobject
 import urllib, urllib2
 
 import excepthook
@@ -71,15 +71,14 @@ class WebServer(ZMQServer):
             if request_data[0] == 'from runmanager':
                 # A parameter space from runmanager:
                 runmanager_data = request_data[1:]
-                print len(runmanager_data),'************'
                 with gtk.gdk.lock:
                     success, message = app.receive_parameter_space(runmanager_data)
                 return success, message
             elif request_data[0] == 'from lyse':
                 # A fitness reported from lyse:
-                individual, fitness = request_data
+                individual_id, fitness = request_data[1:]
                 with gtk.gdk.lock:
-                    success, message = app.report_fitness(individual, fitness)
+                    success, message = app.report_fitness(individual_id, fitness)
                 return success, message
         success, message = False, 'Request to mise not understood\n'
         return success, message
@@ -245,6 +244,10 @@ class Mise(object):
         self.box_not_paused = builder.get_object('not_paused')
         self.label_labscript_file = builder.get_object('label_labscript_file')
         self.label_output_directory = builder.get_object('label_output_directory')
+        self.spinbutton_population = builder.get_object('spinbutton_population')
+        
+        scrolledwindow_individuals = builder.get_object('scrolledwindow_individuals')
+        self.adjustment_treeview_individuals = scrolledwindow_individuals.get_vadjustment()
         
         # Connect signals:
         builder.connect_signals(self)
@@ -276,7 +279,7 @@ class Mise(object):
         self.params = {}
         self.labscript_file = None
         
-        self.population = 10
+        self.population = int(self.spinbutton_population.get_value())
         self.current_generation = None
         self.generations = []
         
@@ -289,6 +292,9 @@ class Mise(object):
         self.to_child, self.from_child, child = subprocess_with_queues(batch_compiler)
 
         self.paused = False
+        
+        # Whether the last scroll to the bottom of the individuals treeview has been processed:
+        self.scrolled = True
         
         # A thread which looks for un-compiled individuals and compiles
         # them, submitting them to BLACS:
@@ -313,7 +319,13 @@ class Mise(object):
                                     buttons=(gtk.BUTTONS_OK), message_format = message)
         result = dialog.run()
         dialog.destroy()
-           
+    
+    def scroll_to_bottom(self):
+        with gtk.gdk.lock:
+            self.adjustment_treeview_individuals.set_value(
+                self.adjustment_treeview_individuals.upper - self.adjustment_treeview_individuals.page_size)
+        self.scrolled = True
+               
     def on_pause_button_toggled(self,button):
         if button.get_active():
             self.paused = True
@@ -325,6 +337,9 @@ class Mise(object):
             self.box_not_paused.show()
             with self.timing_condition:
                 self.timing_condition.notify_all()
+    
+    def on_spinbutton_population_value_changed(self, widget):
+        self.pupulation = int(self.spinbutton_population.get_value())
     
     def on_parameter_min_edited(self, renderer, rowindex, value):
         row = self.liststore_parameters[int(rowindex)]
@@ -389,8 +404,7 @@ class Mise(object):
                 self.liststore_parameters.append(data)
                 self.params[name] = value
         if self.current_generation is None:
-            self.current_generation = Generation(self.population, self.params)
-            self.generations.append(self.current_generation)
+            self.new_generation()
         self.new_individual_liststore()
         self.labscript_file = labscript_file
         self.sequenceglobals = sequenceglobals
@@ -408,9 +422,23 @@ class Mise(object):
             self.timing_condition.notify_all()
         return True, 'optimisation request added successfully\n'
 
-    def report_fitness(self, individual, fitness):
-        print individual, fitness
-        return True, 'dummy message\n'
+    def report_fitness(self, individual_id, fitness):
+        found = False
+        if self.current_generation is None:
+            return False, 'mise is not initialised, there are no individuals requiring fitness reports.'
+        for individual in self.current_generation:
+            if individual.id == individual_id:
+                found = True
+                break
+        if not found:
+            return False, 'individual with id %d not found in current generation'%individual_id
+        individual.fitness = fitness
+        self.set_value(individual, FITNESS, fitness)
+        individual.fitness_visible = True
+        self.set_value(individual, FITNESS_VISIBLE, individual.fitness_visible)
+        individual.waiting_visible = False
+        self.set_value(individual, WAITING_VISIBLE, individual.waiting_visible)
+        return True, None
         
     def new_individual_liststore(self):
         column_names = self.base_liststore_cols + self.params.keys()
@@ -571,7 +599,16 @@ class Mise(object):
                 # Still waiting on at least one individual, do not spawn a new generation yet
                 with self.timing_condition:
                     self.timing_condition.wait()
-                
+                    
+    def new_generation(self):
+        self.current_generation = Generation(self.population, self.params)
+        self.generations.append(self.current_generation)
+        if self.scrolled:
+            # Are we scrolled to the bottom of the TreeView?
+            if self.adjustment_treeview_individuals.value == self.adjustment_treeview_individuals.upper - self.adjustment_treeview_individuals.page_size:
+                self.scrolled = False                 
+                gobject.idle_add(self.scroll_to_bottom)
+                    
 if __name__ == '__main__':
     gtk.threads_init()
     app = Mise()

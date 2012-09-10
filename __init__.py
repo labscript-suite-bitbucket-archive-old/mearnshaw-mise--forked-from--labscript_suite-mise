@@ -1,5 +1,13 @@
 from __future__ import division
+import os
 from numbers import Number
+
+
+from subproc_utils import zmq_get
+from LabConfig import LabConfig, config_prefix
+import socket
+
+_exp_config = LabConfig(os.path.join(config_prefix,'%s.ini'%socket.gethostname()))
 
 class MiseParameter(object):
     def __init__(self, min, max, mutation_rate=None, log=False, initial = None):
@@ -30,3 +38,16 @@ class MiseParameter(object):
         self.mutation_rate = abs(float(mutation_rate))
         self.log = bool(log)
         self.initial = None if initial is None else float(initial)
+        
+def report_fitness(individual_id, fitness, host='localhost'):
+    port = int(_exp_config.get('ports','mise'))
+    fitness = float(fitness)
+    individual_id = int(individual_id)
+    data = ('from lyse', individual_id, fitness)
+    success, message = zmq_get(port, host, data, timeout=2)
+    if not success:
+        raise RuntimeError(message)
+        
+if __name__ == '__main__':
+    x = report_fitness(0,2)
+    print x
