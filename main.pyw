@@ -6,9 +6,11 @@ import Queue
 import itertools
 import subprocess
 import threading
+import urllib, urllib2
+
 import numpy
 import gtk, gobject
-import urllib, urllib2
+import h5py
 
 import excepthook
 from subproc_utils import ZMQServer, subprocess_with_queues
@@ -90,7 +92,7 @@ class IndividualNotFound(Exception):
     
 class Individual(object):
     counter = itertools.count()
-    all_individuals = []
+    all_individuals = {}
     
     def __init__(self, genome):
         self.genome = genome
@@ -101,7 +103,7 @@ class Individual(object):
         self.compile_progress = 0
         self.error_visible = None
         self.waiting_visible = False
-        self.all_individuals.append(self)
+        self.all_individuals[self.id] = self
         
     def __getitem__(self,item):
         return self.genome[item]
@@ -146,17 +148,17 @@ class Generation(object):
             # Let mating season begin:
             while len(self.individuals) < population:
                 # Pick parent number #1
-                parent_1_index = numpy.searchsorted(cumsum(fitnesses), numpy.random.rand())
+                parent_1_index = numpy.searchsorted(numpy.cumsum(fitnesses), numpy.random.rand())
                 # Pick parent number #2, must be different to parent #1:
                 parent_2_index = parent_1_index
                 while parent_2_index == parent_1_index:
-                    parent_2_index = numpy.searchsorted(cumsum(fitnesses), numpy.random.rand())
+                    parent_2_index = numpy.searchsorted(numpy.cumsum(fitnesses), numpy.random.rand())
                 parent_1 = previous_generation[parent_1_index]
                 parent_2 = previous_generation[parent_2_index]
                 # Now we have two parents. Let's mix their genomes:
                 child_genome = {}
                 for name, param in parameters.items():
-                    if 'name' in parent_1 and 'name' in parent_2:
+                    if name in parent_1.genome and name in parent_2.genome:
                         # Pick a value for this parameter from a uniform
                         # probability distribution between it's parents'
                         # values:
@@ -180,7 +182,7 @@ class Generation(object):
                     child_genome[name] = child_value
                     
                 # Congratulations, it's a boy!
-                child = Individual(genome)
+                child = Individual(child_genome)
                 self.individuals.append(child)
                     
     def __iter__(self):
@@ -403,9 +405,9 @@ class Mise(object):
                 data = [name, value.min, value.max, value.mutation_rate, value.log]
                 self.liststore_parameters.append(data)
                 self.params[name] = value
+        self.new_individual_liststore()
         if self.current_generation is None:
             self.new_generation()
-        self.new_individual_liststore()
         self.labscript_file = labscript_file
         self.sequenceglobals = sequenceglobals
         self.shots = shots
@@ -438,25 +440,31 @@ class Mise(object):
         self.set_value(individual, FITNESS_VISIBLE, individual.fitness_visible)
         individual.waiting_visible = False
         self.set_value(individual, WAITING_VISIBLE, individual.waiting_visible)
+        # The reproduction_loop will want to check whether its time for a new generation:
+        with self.timing_condition:
+            self.timing_condition.notify_all()
         return True, None
-        
+    
+    def append_generation_to_liststore(self, generation):
+        for individual in generation:
+            row = [generation.id, 
+                   individual.id, 
+                   individual.fitness_visible, 
+                   individual.fitness,
+                   individual.compile_progress_visible,
+                   individual.compile_progress,
+                   individual.error_visible,
+                   individual.waiting_visible]
+            row += [individual[name] for name in self.params]
+            self.liststore_individuals.append(row)
+            
     def new_individual_liststore(self):
         column_names = self.base_liststore_cols + self.params.keys()
         column_types = [self.base_liststore_types[name] for name in self.base_liststore_cols]  + [str for name in self.params]
         self.liststore_individuals = gtk.ListStore(*column_types)
         self.treeview_individuals.set_model(self.liststore_individuals)
         for generation in self.generations:
-            for individual in generation:
-                row = [generation.id, 
-                       individual.id, 
-                       individual.fitness_visible, 
-                       individual.fitness,
-                       individual.compile_progress_visible,
-                       individual.compile_progress,
-                       individual.error_visible,
-                       individual.waiting_visible]
-                row += [individual[name] for name in self.params]
-                self.liststore_individuals.append(row)
+            self.append_generation_to_liststore(generation)
         # Make sure the Treeview has columns for the current parameters:
         for param_name in self.params:
             if not param_name in self.treeview_parameter_columns:
@@ -504,6 +512,9 @@ class Mise(object):
                 individual.error_visible = False
                 self.set_value(individual, ERROR_VISIBLE, individual.error_visible)
             for i, run_file in enumerate(run_files):
+                with h5py.File(run_file) as hdf5_file:
+                    hdf5_file.attrs['individual id'] = individual.id
+                    hdf5_file.attrs['generation'] = self.current_generation.id
                 self.to_child.put(['compile',[self.labscript_file,run_file]])
                 while True:
                     signal,data = self.from_child.get()
@@ -565,23 +576,21 @@ class Mise(object):
             
     def compile_loop(self):
         while True:
-            while self.paused:
+            while self.paused or self.current_generation is None:
                 with self.timing_condition:
                     self.timing_condition.wait()
             logger.info('compile loop iteration')
             # Get the next individual requiring compilation:
-            individual = None
-            with gtk.gdk.lock:
-                for row in self.liststore_individuals:
-                    if row[COMPILE_PROGRESS] == 0:
-                        individual_id = int(row[ID])
-                        individual = Individual.all_individuals[individual_id]
-                        logger.info('individual %d needs compiling'%individual_id)
-                        break
+            compile_required = False
+            for individual in self.current_generation:
+                if individual.compile_progress == 0:
+                    logger.info('individual %d needs compiling'%individual.id)
+                    compile_required = True
+                    break
             # If we didn't find any individuals requiring compilation,
             # wait until a timing_condition notification before checking
             # again:
-            if individual is None:
+            if not compile_required:
                 logger.info('no individuals requiring compilation')
                 with self.timing_condition:
                     self.timing_condition.wait()
@@ -599,16 +608,24 @@ class Mise(object):
                 # Still waiting on at least one individual, do not spawn a new generation yet
                 with self.timing_condition:
                     self.timing_condition.wait()
+                    continue
+            # OK, all fitnesses are reported. Mating season is upon us:
+            with gtk.gdk.lock:
+                self.new_generation()
                     
     def new_generation(self):
-        self.current_generation = Generation(self.population, self.params)
+        self.current_generation = Generation(self.population, self.params, self.current_generation)
         self.generations.append(self.current_generation)
+        self.append_generation_to_liststore(self.current_generation)
         if self.scrolled:
             # Are we scrolled to the bottom of the TreeView?
             if self.adjustment_treeview_individuals.value == self.adjustment_treeview_individuals.upper - self.adjustment_treeview_individuals.page_size:
                 self.scrolled = False                 
                 gobject.idle_add(self.scroll_to_bottom)
-                    
+        # There are new individuals, the compile_loop will want to know about this:
+        with self.timing_condition:
+            self.timing_condition.notify_all()
+            
 if __name__ == '__main__':
     gtk.threads_init()
     app = Mise()

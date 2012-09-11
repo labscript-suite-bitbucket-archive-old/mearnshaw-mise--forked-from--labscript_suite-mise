@@ -47,7 +47,4 @@ def report_fitness(individual_id, fitness, host='localhost'):
     success, message = zmq_get(port, host, data, timeout=2)
     if not success:
         raise RuntimeError(message)
-        
-if __name__ == '__main__':
-    x = report_fitness(0,2)
-    print x
+
