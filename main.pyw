@@ -341,7 +341,8 @@ class Mise(object):
                 self.timing_condition.notify_all()
     
     def on_spinbutton_population_value_changed(self, widget):
-        self.pupulation = int(self.spinbutton_population.get_value())
+        self.population = int(self.spinbutton_population.get_value())
+        print self.population
     
     def on_parameter_min_edited(self, renderer, rowindex, value):
         row = self.liststore_parameters[int(rowindex)]
@@ -576,23 +577,22 @@ class Mise(object):
             
     def compile_loop(self):
         while True:
-            while self.paused or self.current_generation is None:
-                with self.timing_condition:
+            with self.timing_condition:
+                while self.paused or self.current_generation is None:
                     self.timing_condition.wait()
-            logger.info('compile loop iteration')
-            # Get the next individual requiring compilation:
-            compile_required = False
-            for individual in self.current_generation:
-                if individual.compile_progress == 0:
-                    logger.info('individual %d needs compiling'%individual.id)
-                    compile_required = True
-                    break
-            # If we didn't find any individuals requiring compilation,
-            # wait until a timing_condition notification before checking
-            # again:
-            if not compile_required:
-                logger.info('no individuals requiring compilation')
-                with self.timing_condition:
+                logger.info('compile loop iteration')
+                # Get the next individual requiring compilation:
+                compile_required = False
+                for individual in self.current_generation:
+                    if individual.compile_progress == 0:
+                        logger.info('individual %d needs compiling'%individual.id)
+                        compile_required = True
+                        break
+                # If we didn't find any individuals requiring compilation,
+                # wait until a timing_condition notification before checking
+                # again:
+                if not compile_required:
+                    logger.info('no individuals requiring compilation')
                     self.timing_condition.wait()
                     continue
             # OK, we have an individual which requires compilation.
