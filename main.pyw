@@ -1,3 +1,4 @@
+from __future__ import division
 import os
 import sys
 import socket
@@ -94,7 +95,7 @@ class Individual(object):
     counter = itertools.count()
     all_individuals = {}
     
-    def __init__(self, genome):
+    def __init__(self, genome, mutation_biases):
         self.genome = genome
         self.id = self.counter.next()
         self.fitness_visible = False
@@ -104,7 +105,8 @@ class Individual(object):
         self.error_visible = None
         self.waiting_visible = False
         self.all_individuals[self.id] = self
-        
+        self.mutation_biases = mutation_biases
+       
     def __getitem__(self,item):
         return self.genome[item]
         
@@ -128,7 +130,8 @@ class Generation(object):
                         value = numpy.random.normal(param.initial, param.mutation_rate)
                         value = numpy.clip(value, param.min, param.max)
                     genome[name] = value
-                individual = Individual(genome)
+                mutation_biases = {name: numpy.sign(numpy.random.normal()) for name in genome}
+                individual = Individual(genome, mutation_biases)
                 self.individuals.append(individual)
         else:
             # Create a new generation from the previous one, by 'mating'
@@ -157,6 +160,7 @@ class Generation(object):
                 parent_2 = previous_generation[parent_2_index]
                 # Now we have two parents. Let's mix their genomes:
                 child_genome = {}
+                child_mutation_biases = {}
                 for name, param in parameters.items():
                     if name in parent_1.genome and name in parent_2.genome:
                         # Pick a value for this parameter from a uniform
@@ -164,8 +168,16 @@ class Generation(object):
                         # values:
                         lim1, lim2 = parent_1[name], parent_2[name]
                         child_value = numpy.random.rand()*(lim2-lim1) + lim1
+                        # Pick a mutation biasing direction from one of the parents:
+                        mutation_bias = [parent.mutation_biases[name] for parent in (parent_1,parent_2)][numpy.random.randint(2)]
+                        # Possible mutate this direction, with probability 1/population:
+                        if numpy.random.rand() < 1/population:
+                            mutation_bias *= -1
+                        child_mutation_biases[name] = mutation_bias
                         # Apply a Gaussian mutation and clip to keep in limits:
                         child_value = numpy.random.normal(child_value, param.mutation_rate)
+#                        mutation_value = abs(numpy.random.normal(0, param.mutation_rate))*mutation_bias
+#                        child_value += mutation_value
                         child_value = numpy.clip(child_value, param.min, param.max)
                     else:
                         # The parents don't have this
@@ -179,10 +191,12 @@ class Generation(object):
                             # of mutation to the initial value:
                             child_value = numpy.random.normal(param.initial, param.mutation_rate)
                             child_value = numpy.clip(value, param.min, param.max)
+                        # Pick a random mutation biasing direction:
+                        child_mutation_biases[name] = numpy.sign(numpy.random.normal())
                     child_genome[name] = child_value
                     
                 # Congratulations, it's a boy!
-                child = Individual(child_genome)
+                child = Individual(child_genome, child_mutation_biases)
                 self.individuals.append(child)
                     
     def __iter__(self):
@@ -525,7 +539,7 @@ class Mise(object):
                         success = data
                         break
                 if not success:
-                    break
+                    raise Exception
                 else:
                     with gtk.gdk.lock:
                         individual.compile_progress = 100*float(i+1)/n_run_files
