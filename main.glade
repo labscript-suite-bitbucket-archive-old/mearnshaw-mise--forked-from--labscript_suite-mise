@@ -514,6 +514,7 @@
                             <property name="visible">True</property>
                             <property name="can_focus">False</property>
                             <property name="receives_default">True</property>
+                            <property name="tooltip_text" translatable="yes">Add individual(s)</property>
                             <property name="use_action_appearance">False</property>
                             <property name="relief">none</property>
                             <child>
@@ -535,6 +536,7 @@
                             <property name="visible">True</property>
                             <property name="can_focus">False</property>
                             <property name="receives_default">True</property>
+                            <property name="tooltip_text" translatable="yes">Delete selected individual(s)</property>
                             <property name="use_action_appearance">False</property>
                             <property name="relief">none</property>
                             <signal name="clicked" handler="on_button_delete_individuals_clicked" swapped="no"/>
@@ -550,6 +552,52 @@
                             <property name="expand">True</property>
                             <property name="fill">True</property>
                             <property name="position">2</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkButton" id="button_mark_uncompiled">
+                            <property name="visible">True</property>
+                            <property name="can_focus">False</property>
+                            <property name="receives_default">True</property>
+                            <property name="tooltip_text" translatable="yes">Mark as uncompiled</property>
+                            <property name="use_action_appearance">False</property>
+                            <property name="relief">none</property>
+                            <signal name="clicked" handler="on_button_mark_uncompiled_clicked" swapped="no"/>
+                            <child>
+                              <object class="GtkImage" id="image3">
+                                <property name="visible">True</property>
+                                <property name="can_focus">False</property>
+                                <property name="stock">gtk-redo</property>
+                              </object>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="expand">True</property>
+                            <property name="fill">True</property>
+                            <property name="position">3</property>
+                          </packing>
+                        </child>
+                        <child>
+                          <object class="GtkButton" id="button_clear_fitness">
+                            <property name="visible">True</property>
+                            <property name="can_focus">False</property>
+                            <property name="receives_default">True</property>
+                            <property name="use_action_appearance">False</property>
+                            <property name="relief">none</property>
+                            <signal name="clicked" handler="on_button_clear_fitness_clicked" swapped="no"/>
+                            <child>
+                              <object class="GtkImage" id="image4">
+                                <property name="visible">True</property>
+                                <property name="can_focus">False</property>
+                                <property name="tooltip_text" translatable="yes">Clear fitness</property>
+                                <property name="stock">gtk-clear</property>
+                              </object>
+                            </child>
+                          </object>
+                          <packing>
+                            <property name="expand">True</property>
+                            <property name="fill">True</property>
+                            <property name="position">4</property>
                           </packing>
                         </child>
                       </object>

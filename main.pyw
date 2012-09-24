@@ -165,22 +165,27 @@ class Generation(object):
                 child_genome = {}
                 child_mutation_biases = {}
                 for name, param in parameters.items():
+                    # Pick a point in parameter space from a uniform
+                    # probability distribution along the line spanned
+                    # by the two parents:
+                    crossover_parameter = numpy.random.rand()
+                    # The child will inherit mutation biases from
+                    # whichever parent it is closest to in parameter
+                    # space:
+                    closest_parent = (parent_1,parent_2)[int(round(crossover_parameter))]
                     if name in parent_1.genome and name in parent_2.genome:
-                        # Pick a value for this parameter from a uniform
-                        # probability distribution between it's parents'
-                        # values:
                         lim1, lim2 = parent_1[name], parent_2[name]
-                        child_value = numpy.random.rand()*(lim2-lim1) + lim1
+                        child_value = crossover_parameter*(lim2-lim1) + lim1
                         # Pick a mutation biasing direction from one of the parents:
-                        mutation_bias = [parent.mutation_biases[name] for parent in (parent_1,parent_2)][numpy.random.randint(2)]
-                        # Possible mutate this direction, with probability 1/population:
+                        mutation_bias = closest_parent.mutation_biases[name]
+                        # Possibly mutate this direction, with probability 1/population:
                         if numpy.random.rand() < 1/population:
                             mutation_bias *= -1
                         child_mutation_biases[name] = mutation_bias
                         # Apply a Gaussian mutation and clip to keep in limits:
                         child_value = numpy.random.normal(child_value, param.mutation_rate)
-#                        mutation_value = abs(numpy.random.normal(0, param.mutation_rate))*mutation_bias
-#                        child_value += mutation_value
+                        mutation_value = abs(numpy.random.normal(0, param.mutation_rate))*mutation_bias
+                        child_value += mutation_value
                         child_value = numpy.clip(child_value, param.min, param.max)
                     else:
                         # The parents don't have this
@@ -524,7 +529,6 @@ class Mise(object):
             path = selection[0]
             iter = model.get_iter(path)
             individual_id = int(model.get_value(iter, ID))
-            print individual_id
             # Delete the individual's entry from the liststore:
             model.remove(iter)
             # Get the individual itself:
@@ -537,7 +541,43 @@ class Mise(object):
             # Update selection now that deletion of this individual is complete:
             selection = self.treeview_individuals.get_selection()
             model, selection = selection.get_selected_rows()
-                                    
+
+    def on_button_mark_uncompiled_clicked(self,button):
+        model, selection = self.treeselection_individuals.get_selected_rows()
+        for path in selection:
+            iter = model.get_iter(path)
+            individual_id = int(model.get_value(iter, ID))
+            individual =  Individual.all_individuals[individual_id]
+            if individual.compile_progress == 100:
+                individual.compile_progress = 0
+                self.set_value(individual, COMPILE_PROGRESS, individual.compile_progress)
+                individual.compile_progress_visible = True
+                self.set_value(individual, COMPILE_PROGRESS_VISIBLE, individual.compile_progress_visible)
+                individual.error_visible = False
+                self.set_value(individual, ERROR_VISIBLE, individual.error_visible)
+                individual.waiting_visible = False
+                self.set_value(individual, WAITING_VISIBLE, individual.waiting_visible)
+                individual.fitness = None
+                self.set_value(individual, FITNESS, individual.fitness)
+                individual.fitness_visible = False
+                self.set_value(individual, FITNESS_VISIBLE, individual.fitness_visible)
+            with self.timing_condition:
+                self.timing_condition.notify_all()
+           
+    def on_button_clear_fitness_clicked(self,button):
+        model, selection = self.treeselection_individuals.get_selected_rows()
+        for path in selection:
+            iter = model.get_iter(path)
+            individual_id = int(model.get_value(iter, ID))
+            individual =  Individual.all_individuals[individual_id]
+            if individual.fitness is not None:
+                individual.waiting_visible = True
+                self.set_value(individual, WAITING_VISIBLE, individual.waiting_visible)
+                individual.fitness = None
+                self.set_value(individual, FITNESS, individual.fitness)
+                individual.fitness_visible = False
+                self.set_value(individual, FITNESS_VISIBLE, individual.fitness_visible) 
+            
     def compile_one_individual(self,individual):
         # Create a list of shot globals for this individual, by copying
         # self.shots and replacing MiseParameters with their values for
