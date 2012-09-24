@@ -95,7 +95,7 @@ class Individual(object):
     counter = itertools.count()
     all_individuals = {}
     
-    def __init__(self, genome, mutation_biases):
+    def __init__(self, genome, mutation_biases, generation):
         self.genome = genome
         self.id = self.counter.next()
         self.fitness_visible = False
@@ -106,15 +106,18 @@ class Individual(object):
         self.waiting_visible = False
         self.all_individuals[self.id] = self
         self.mutation_biases = mutation_biases
-       
+        self.generation = generation
+        
     def __getitem__(self,item):
         return self.genome[item]
         
     
 class Generation(object):
     counter = itertools.count()
+    all_generations = {}
     def __init__(self, population, parameters, previous_generation=None):
         self.id = self.counter.next()
+        self.all_generations[self.id] = self
         self.individuals = []
         if previous_generation is None:
             # Spawn individuals to create the first generation:
@@ -131,7 +134,7 @@ class Generation(object):
                         value = numpy.clip(value, param.min, param.max)
                     genome[name] = value
                 mutation_biases = {name: numpy.sign(numpy.random.normal()) for name in genome}
-                individual = Individual(genome, mutation_biases)
+                individual = Individual(genome, mutation_biases, self)
                 self.individuals.append(individual)
         else:
             # Create a new generation from the previous one, by 'mating'
@@ -196,7 +199,7 @@ class Generation(object):
                     child_genome[name] = child_value
                     
                 # Congratulations, it's a boy!
-                child = Individual(child_genome, child_mutation_biases)
+                child = Individual(child_genome, child_mutation_biases, self)
                 self.individuals.append(child)
                     
     def __iter__(self):
@@ -264,6 +267,10 @@ class Mise(object):
         
         scrolledwindow_individuals = builder.get_object('scrolledwindow_individuals')
         self.adjustment_treeview_individuals = scrolledwindow_individuals.get_vadjustment()
+        
+        # Allow you to select multiple entries in the treeview:
+        self.treeselection_individuals = self.treeview_individuals.get_selection()
+        self.treeselection_individuals.set_mode(gtk.SELECTION_MULTIPLE)
         
         # Connect signals:
         builder.connect_signals(self)
@@ -507,7 +514,30 @@ class Mise(object):
                 row[column] = value
                 return
         raise IndividualNotFound
-                        
+
+
+    def on_button_delete_individuals_clicked(self, button):
+        model, selection = self.treeselection_individuals.get_selected_rows()
+        # Have to delete one at a time, since the indices change after
+        # each deletion:
+        while selection:
+            path = selection[0]
+            iter = model.get_iter(path)
+            individual_id = int(model.get_value(iter, ID))
+            print individual_id
+            # Delete the individual's entry from the liststore:
+            model.remove(iter)
+            # Get the individual itself:
+            individual =  Individual.all_individuals[individual_id]
+            # Delete it from the record of all individuals:
+            del Individual.all_individuals[individual_id]
+            # Delete it from its parent generation's record of individuals:
+            generation = individual.generation
+            generation.individuals.remove(individual)
+            # Update selection now that deletion of this individual is complete:
+            selection = self.treeview_individuals.get_selection()
+            model, selection = selection.get_selected_rows()
+                                    
     def compile_one_individual(self,individual):
         # Create a list of shot globals for this individual, by copying
         # self.shots and replacing MiseParameters with their values for
