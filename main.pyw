@@ -283,12 +283,9 @@ class Mise(object):
         # Show the main window:
         self.window.show()
         
-        # Compilations will have their output streams
-        # redirected to the outputbox via a queue:
-        self.to_outputbox = Queue.Queue()
-        
-        # Make an output box for terminal output:
-        outputbox = OutputBox(outputbox_container, self.to_outputbox)
+        # Make an output box for terminal output. Compilations will have their output streams
+        # redirected to it over zmq sockets:
+        self.outputbox = OutputBox(outputbox_container)
         
         # Get settings:
         config_path = os.path.join(config_prefix,'%s.ini'%socket.gethostname())
@@ -317,7 +314,7 @@ class Mise(object):
         # Start the compiler subprocess:
         runmanager_dir=os.path.dirname(runmanager.__file__)
         batch_compiler = os.path.join(runmanager_dir, 'batch_compiler.py')
-        self.to_child, self.from_child, child = subprocess_with_queues(batch_compiler)
+        self.to_child, self.from_child, child = subprocess_with_queues(batch_compiler,self.outputbox.port)
 
         self.paused = False
         
@@ -603,11 +600,11 @@ class Mise(object):
                 self.to_child.put(['compile',[self.labscript_file,run_file]])
                 while True:
                     signal,data = self.from_child.get()
-                    if signal in ['stdout','stderr']:
-                        self.to_outputbox.put([signal,data])
-                    elif signal == 'done':
+                    if signal == 'done':
                         success = data
                         break
+                    else:
+                        raise RuntimeError((signal, data))
                 if not success:
                     raise Exception
                 else:
@@ -630,7 +627,7 @@ class Mise(object):
         except Exception as e :
             # Couldn't make or run files, couldn't compile, or couldn't
             # submit. Print the error, pause mise, and display error icon:
-            self.to_outputbox.put(['stderr', str(e) + '\n'])
+            self.outputbox.output(str(e) + '\n', red = True)
             with gtk.gdk.lock:
                 self.pause_button.set_active(True)
                 individual.compile_progress = 0
@@ -647,16 +644,16 @@ class Mise(object):
         # Workaround to force python not to use IPv6 for the request:
         address  = socket.gethostbyname(self.BLACS_server)
         run_file = run_file.replace(self.shared_drive_prefix,'Z:/').replace('/','\\')
-        self.to_outputbox.put(['stdout','Submitting run file %s.\n'%os.path.basename(run_file)])
+        self.outputbox.output('Submitting run file %s.\n'%os.path.basename(run_file))
         params = urllib.urlencode({'filepath': run_file})
         try:
             response = urllib2.urlopen('http://%s:%d'%(address,self.BLACS_port), params, 2).read()
             if 'added successfully' in response:
-                self.to_outputbox.put(['stdout',response])
+                self.outputbox.output(response)
             else:
                 raise Exception(response)
         except Exception:
-            self.to_outputbox.put(['stderr', 'Couldn\'t submit job to control server:\n'])
+            self.outputbox.output('Couldn\'t submit job to control server:\n', red = True)
             raise         
             
     def compile_loop(self):
