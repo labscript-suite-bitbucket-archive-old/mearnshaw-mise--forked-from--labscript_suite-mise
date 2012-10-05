@@ -11,7 +11,7 @@ import urllib, urllib2
 
 import numpy
 import gtk, gobject
-import h5py
+import h5_lock, h5py
 
 import excepthook
 from subproc_utils import ZMQServer, subprocess_with_queues
