@@ -143,6 +143,10 @@ class Generation(object):
             # fitnesses of previous generation to create a probability
             # mass function:
             fitnesses = numpy.array([individual.fitness for individual in previous_generation])
+            sorted_fitnesses = sorted(fitnesses)
+            rankings = [sorted_fitnesses.index(fitness) for fitness in fitnesses]
+            # Must be an array of floats if the inline +=,-=,/=,*= are to operate correctly
+            fitnesses = numpy.array(rankings,dtype=numpy.float)
             fitnesses -= fitnesses.min()
             if fitnesses.max() != 0:
                 fitnesses /= fitnesses.max()
