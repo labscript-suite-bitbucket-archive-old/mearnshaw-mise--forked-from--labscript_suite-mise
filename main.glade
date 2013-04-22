@@ -18,8 +18,6 @@
       <column type="gchararray"/>
       <!-- column-name mutation -->
       <column type="gchararray"/>
-      <!-- column-name logarithmic -->
-      <column type="gboolean"/>
     </columns>
   </object>
   <object class="GtkWindow" id="window">
@@ -369,20 +367,6 @@
                                       </object>
                                       <attributes>
                                         <attribute name="text">3</attribute>
-                                      </attributes>
-                                    </child>
-                                  </object>
-                                </child>
-                                <child>
-                                  <object class="GtkTreeViewColumn" id="col_parameter_logarithmic">
-                                    <property name="resizable">True</property>
-                                    <property name="title" translatable="yes">logarithmic</property>
-                                    <child>
-                                      <object class="GtkCellRendererToggle" id="parameter_logarithmic">
-                                        <signal name="toggled" handler="on_parameter_logarithmic_toggled" swapped="no"/>
-                                      </object>
-                                      <attributes>
-                                        <attribute name="active">4</attribute>
                                       </attributes>
                                     </child>
                                   </object>
