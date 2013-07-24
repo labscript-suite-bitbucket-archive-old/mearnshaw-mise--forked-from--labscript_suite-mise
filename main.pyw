@@ -14,11 +14,12 @@ import gtk, gobject
 import h5_lock, h5py
 
 import excepthook
-from subproc_utils import ZMQServer, subprocess_with_queues
+from subproc_utils import ZMQServer, subprocess_with_queues, zmq_get
 from subproc_utils.gtk_components import OutputBox
 
 from LabConfig import LabConfig, config_prefix
 
+import shared_drive
 import runmanager
 from mise import MiseParameter
 
@@ -430,7 +431,7 @@ class Mise(object):
         first_shot = shots[0]
         for name, value in first_shot.items():
             if isinstance(value, MiseParameter):
-                data = [name, value.min, value.max, value.mutation_rate, value.log]
+                data = [name, value.min, value.max, value.mutation_rate]
                 self.liststore_parameters.append(data)
                 self.params[name] = value
         self.new_individual_liststore()
@@ -646,20 +647,19 @@ class Mise(object):
    
     def submit_job(self, run_file):
         # Workaround to force python not to use IPv6 for the request:
-        address  = socket.gethostbyname(self.BLACS_server)
-        run_file = run_file.replace(self.shared_drive_prefix,'Z:/').replace('/','\\')
+        host = socket.gethostbyname(self.BLACS_server)
+        agnostic_path = shared_drive.path_to_agnostic(run_file)
         self.outputbox.output('Submitting run file %s.\n'%os.path.basename(run_file))
-        params = urllib.urlencode({'filepath': run_file})
         try:
-            response = urllib2.urlopen('http://%s:%d'%(address,self.BLACS_port), params, 2).read()
+            response = zmq_get(self.BLACS_port, host, data=agnostic_path)
             if 'added successfully' in response:
                 self.outputbox.output(response)
             else:
                 raise Exception(response)
-        except Exception:
-            self.outputbox.output('Couldn\'t submit job to control server:\n', red = True)
-            raise         
-            
+        except Exception as e:
+            self.outputbox.output('Couldn\'t submit job to control server: %s\n'%str(e),red=True)
+            raise
+  
     def compile_loop(self):
         while True:
             with self.timing_condition:
