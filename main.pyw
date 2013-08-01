@@ -11,7 +11,7 @@ import urllib, urllib2
 
 import numpy
 import gtk, gobject
-import h5_lock, h5py
+import zlock, h5_lock, h5py
 
 import excepthook
 from subproc_utils import ZMQServer, subprocess_with_queues, zmq_get
@@ -27,6 +27,9 @@ from mise import MiseParameter
 # avoids a stupid crash on Windows when there is no command window:
 if not sys.stdout.isatty():
     sys.stdout = sys.stderr = open('debug.log','w',1)
+    
+# Set a meaningful name for zlock's client id:
+zlock.set_client_process_name('mise')
     
 if os.name == 'nt':
     # Make it not look so terrible (if icons and themes are installed):
