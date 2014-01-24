@@ -16,7 +16,7 @@ import os
 from numbers import Number
 
 
-from subproc_utils import zmq_get
+from zprocess import zmq_get
 from labscript_utils.labconfig import LabConfig, config_prefix
 import socket
 

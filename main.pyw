@@ -24,11 +24,11 @@ import urllib, urllib2
 
 import numpy
 import gtk, gobject
-import zlock, labscript_utils.h5_lock, h5py
+import zprocess.locking, labscript_utils.h5_lock, h5py
 
 import labscript_utils.excepthook
-from subproc_utils import ZMQServer, subprocess_with_queues, zmq_get
-from subproc_utils.gtk_components import OutputBox
+from zprocess import ZMQServer, subprocess_with_queues, zmq_get
+from labscript_utils.gtk_outputbox import OutputBox
 
 from labscript_utils.labconfig import LabConfig, config_prefix
 
@@ -41,8 +41,8 @@ from mise import MiseParameter
 if not sys.stdout.isatty():
     sys.stdout = sys.stderr = open('debug.log','w',1)
     
-# Set a meaningful name for zlock's client id:
-zlock.set_client_process_name('mise')
+# Set a meaningful name for zprocess.locking's client id:
+zprocess.locking.set_client_process_name('mise')
     
 if os.name == 'nt':
     # Make it not look so terrible (if icons and themes are installed):
