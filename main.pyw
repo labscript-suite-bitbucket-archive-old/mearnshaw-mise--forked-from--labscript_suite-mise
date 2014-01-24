@@ -11,15 +11,15 @@ import urllib, urllib2
 
 import numpy
 import gtk, gobject
-import zlock, h5_lock, h5py
+import zlock, labscript_utils.h5_lock, h5py
 
-import excepthook
+import labscript_utils.excepthook
 from subproc_utils import ZMQServer, subprocess_with_queues, zmq_get
 from subproc_utils.gtk_components import OutputBox
 
-from LabConfig import LabConfig, config_prefix
+from labscript_utils.labconfig import LabConfig, config_prefix
 
-import shared_drive
+import labscript_utils.shared_drive
 import runmanager
 from mise import MiseParameter
 
@@ -63,7 +63,7 @@ def setup_logging():
     return logger
     
 logger = setup_logging()
-excepthook.set_logger(logger)
+labscript_utils.excepthook.set_logger(logger)
 logger.info('\n\n===============starting===============\n')
 
 
@@ -651,7 +651,7 @@ class Mise(object):
     def submit_job(self, run_file):
         # Workaround to force python not to use IPv6 for the request:
         host = socket.gethostbyname(self.BLACS_server)
-        agnostic_path = shared_drive.path_to_agnostic(run_file)
+        agnostic_path = labscript_utils.shared_drive.path_to_agnostic(run_file)
         self.outputbox.output('Submitting run file %s.\n'%os.path.basename(run_file))
         try:
             response = zmq_get(self.BLACS_port, host, data=agnostic_path)

@@ -4,7 +4,7 @@ from numbers import Number
 
 
 from subproc_utils import zmq_get
-from LabConfig import LabConfig, config_prefix
+from labscript_utils.labconfig import LabConfig, config_prefix
 import socket
 
 _exp_config = LabConfig(os.path.join(config_prefix,'%s.ini'%socket.gethostname()))
