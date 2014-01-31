@@ -20,6 +20,8 @@ from zprocess import zmq_get
 from labscript_utils.labconfig import LabConfig, config_prefix
 import socket
 
+__version__ = '1.0.0'
+
 _exp_config = LabConfig(os.path.join(config_prefix,'%s.ini'%socket.gethostname()))
 
 class MiseParameter(object):
