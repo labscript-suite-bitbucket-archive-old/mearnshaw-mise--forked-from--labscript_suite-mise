@@ -1,0 +1,5 @@
+include mise/main.pyw
+recursive-include mise *.png
+recursive-include mise *.svg
+recursive-include mise *.ico
+recursive-include mise *.glade
